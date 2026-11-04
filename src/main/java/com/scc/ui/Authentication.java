@@ -1,4 +1,3 @@
-
 package com.scc.ui;
 
 import com.scc.dao.UserDao;
@@ -16,7 +15,9 @@ public class Authentication {
         this.sc = sc;
     }
 
+    // LOGIN
     public User login() {
+
         System.out.println("\n========== LOGIN ==========");
 
         System.out.print("Username: ");
@@ -28,18 +29,24 @@ public class Authentication {
         return userDao.login(username, password);
     }
 
+    // REGISTER
     public void register() {
+
         System.out.println("\n========== REGISTER ==========");
 
         System.out.print("Choose a username: ");
         String username = sc.nextLine().trim();
 
-        System.out.print("Choose a password (minimum 8 characters): ");
+        System.out.print(
+                "Choose a password (minimum 8 characters): "
+        );
+
         String password = sc.nextLine();
 
         System.out.println("\nSelect account type:");
         System.out.println("1. Staff");
         System.out.println("2. Customer");
+
         System.out.print("Choice: ");
 
         String choice = sc.nextLine().trim();
@@ -51,6 +58,7 @@ public class Authentication {
         };
 
         if (role == null) {
+
             System.out.println("Invalid role selection.");
             return;
         }

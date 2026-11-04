@@ -1,4 +1,3 @@
-
 package com.scc.model;
 
 public record User(
@@ -8,11 +7,16 @@ public record User(
         String roles,
         String status
 ) {
+
     @Override
     public String toString() {
+
         return String.format(
                 "(%d) %s (%s) - Status: %s",
-                id, username, roles, status
+                id,
+                username,
+                roles,
+                status
         );
     }
 }

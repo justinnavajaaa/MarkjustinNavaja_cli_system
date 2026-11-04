@@ -1,4 +1,3 @@
-
 package com.scc.dao;
 
 import java.sql.Connection;
@@ -11,6 +10,7 @@ public final class DatabaseInitializer {
     }
 
     public static void initialize() {
+
         String sql = """
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,9 +30,11 @@ public final class DatabaseInitializer {
              Statement stmt = conn.createStatement()) {
 
             stmt.execute(sql);
+
             System.out.println("Database initialized successfully.");
 
         } catch (SQLException e) {
+
             throw new IllegalStateException(
                     "Could not initialize the database: "
                             + e.getMessage(), e
