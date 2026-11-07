@@ -11,6 +11,9 @@ import java.util.List;
 
 public class UserDao {
 
+    private final ActivityLogDao activityLogDao =
+            new ActivityLogDao();
+
     public UserDao() {
         createDefaultAdmin();
     }
@@ -31,20 +34,19 @@ public class UserDao {
 
             stmt.setString(1, "admin");
             stmt.setString(2, "admin123");
-
             stmt.executeUpdate();
 
         } catch (SQLException e) {
-
-            System.err.println(
-                    "Could not create default admin: " + e.getMessage()
-            );
+            System.err.println("Default admin error: " + e.getMessage());
         }
     }
 
     // REGISTER USER
     public boolean registerUser(
-            String username, String password, String role) {
+            String username,
+            String password,
+            String role
+    ) {
 
         if (username == null || username.isBlank()
                 || password == null || password.isBlank()
@@ -58,20 +60,12 @@ public class UserDao {
         role = role.trim().toUpperCase();
 
         if (!role.equals("STAFF") && !role.equals("CUSTOMER")) {
-
-            System.out.println(
-                    "Only STAFF and CUSTOMER registration is allowed."
-            );
-
+            System.out.println("Invalid registration role.");
             return false;
         }
 
         if (password.length() < 8) {
-
-            System.out.println(
-                    "Password must contain at least 8 characters."
-            );
-
+            System.out.println("Password must contain at least 8 characters.");
             return false;
         }
 
@@ -80,14 +74,36 @@ public class UserDao {
                 VALUES (?, ?, ?, 'PENDING')
                 """;
 
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
 
-            stmt.setString(1, username);
-            stmt.setString(2, password);
-            stmt.setString(3, role);
+            conn.setAutoCommit(false);
 
-            stmt.executeUpdate();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+                stmt.setString(1, username);
+                stmt.setString(2, password);
+                stmt.setString(3, role);
+                stmt.executeUpdate();
+            }
+
+            int newUserId;
+
+            try (PreparedStatement stmt =
+                         conn.prepareStatement("SELECT last_insert_rowid()");
+                 ResultSet rs = stmt.executeQuery()) {
+
+                rs.next();
+                newUserId = rs.getInt(1);
+            }
+
+            activityLogDao.logAction(
+                    conn,
+                    newUserId,
+                    "USER_REGISTERED",
+                    "New " + role + " account registered: " + username
+            );
+
+            conn.commit();
 
             System.out.println(
                     "Registration successful. Awaiting admin approval."
@@ -97,18 +113,7 @@ public class UserDao {
 
         } catch (SQLException e) {
 
-            if (e.getMessage() != null
-                    && e.getMessage().toLowerCase().contains("unique")) {
-
-                System.out.println("Username already exists.");
-
-            } else {
-
-                System.err.println(
-                        "Registration error: " + e.getMessage()
-                );
-            }
-
+            System.err.println("Registration error: " + e.getMessage());
             return false;
         }
     }
@@ -116,9 +121,7 @@ public class UserDao {
     // LOGIN USER
     public User login(String username, String password) {
 
-        if (username == null || username.isBlank()
-                || password == null) {
-
+        if (username == null || username.isBlank() || password == null) {
             System.out.println("Username and password are required.");
             return null;
         }
@@ -126,7 +129,8 @@ public class UserDao {
         String sql = """
                 SELECT id, username, password, roles, status
                 FROM users
-                WHERE username = ? AND password = ?
+                WHERE username = ?
+                  AND password = ?
                   AND status != 'DELETED'
                 """;
 
@@ -136,53 +140,78 @@ public class UserDao {
             stmt.setString(1, username.trim());
             stmt.setString(2, password);
 
+            User user = null;
+            String status = null;
+
             try (ResultSet rs = stmt.executeQuery()) {
 
-                if (!rs.next()) {
+                if (rs.next()) {
+                    status = rs.getString("status");
 
-                    System.out.println(
-                            "Invalid username or password."
+                    user = new User(
+                            rs.getInt("id"),
+                            rs.getString("username"),
+                            rs.getString("password"),
+                            rs.getString("roles"),
+                            status
                     );
-
-                    return null;
                 }
-
-                String status = rs.getString("status");
-
-                if (!status.equalsIgnoreCase("APPROVED")) {
-
-                    System.out.println(
-                            switch (status.toUpperCase()) {
-                                case "PENDING" ->
-                                        "Your account is pending approval.";
-
-                                case "REJECTED" ->
-                                        "Your account was rejected.";
-
-                                default ->
-                                        "Your account is not active.";
-                            }
-                    );
-
-                    return null;
-                }
-
-                return new User(
-                        rs.getInt("id"),
-                        rs.getString("username"),
-                        rs.getString("password"),
-                        rs.getString("roles"),
-                        status
-                );
             }
+
+            if (user == null) {
+                System.out.println("Invalid username or password.");
+                return null;
+            }
+
+            if (!status.equalsIgnoreCase("APPROVED")) {
+
+                System.out.println(
+                        switch (status.toUpperCase()) {
+                            case "PENDING" ->
+                                    "Your account is pending approval.";
+                            case "REJECTED" ->
+                                    "Your account was rejected.";
+                            default ->
+                                    "Your account is not active.";
+                        }
+                );
+
+                return null;
+            }
+
+            activityLogDao.logAction(
+                    conn,
+                    user.id(),
+                    "USER_LOGIN",
+                    "User " + user.username()
+                            + " (ID: " + user.id() + ") logged in."
+            );
+
+            return user;
 
         } catch (SQLException e) {
 
-            System.err.println(
-                    "Login error: " + e.getMessage()
-            );
-
+            System.err.println("Login error: " + e.getMessage());
             return null;
+        }
+    }
+
+    // LOGOUT
+    public void logLogout(User user) {
+
+        if (user == null) {
+            return;
+        }
+
+        try {
+            activityLogDao.logAction(
+                    user.id(),
+                    "USER_LOGOUT",
+                    "User " + user.username()
+                            + " (ID: " + user.id() + ") logged out."
+            );
+        } catch (SQLException e) {
+            System.err.println("Logout logging error: " + e.getMessage());
         }
     }
 
@@ -203,7 +232,6 @@ public class UserDao {
              ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
-
                 users.add(new User(
                         rs.getInt("id"),
                         rs.getString("username"),
@@ -214,21 +242,21 @@ public class UserDao {
             }
 
         } catch (SQLException e) {
-
-            System.err.println(
-                    "List error: " + e.getMessage()
-            );
+            System.err.println("List error: " + e.getMessage());
         }
 
         return users;
     }
 
-    // UPDATE USER ROLE AND STATUS
+    // UPDATE ROLE AND STATUS
     public boolean updateUserRoleAndStatus(
-            int userId, String newRole, String newStatus) {
+            int userId,
+            String newRole,
+            String newStatus,
+            int adminId
+    ) {
 
         if (newRole == null || newStatus == null) {
-
             System.out.println("Role and status are required.");
             return false;
         }
@@ -236,19 +264,12 @@ public class UserDao {
         newRole = newRole.trim().toUpperCase();
         newStatus = newStatus.trim().toUpperCase();
 
-        // Validate role
-        if (!newRole.equals("ADMIN")
-                && !newRole.equals("STAFF")
-                && !newRole.equals("CUSTOMER")) {
-
+        if (!List.of("ADMIN", "STAFF", "CUSTOMER").contains(newRole)) {
             System.out.println("Invalid role.");
             return false;
         }
 
-        // Validate status
-        if (!newStatus.equals("APPROVED")
-                && !newStatus.equals("PENDING")) {
-
+        if (!List.of("APPROVED", "PENDING").contains(newStatus)) {
             System.out.println("Invalid status.");
             return false;
         }
@@ -256,53 +277,59 @@ public class UserDao {
         String sql = """
                 UPDATE users
                 SET roles = ?, status = ?
-                WHERE id = ?
+                WHERE id = ? AND status != 'DELETED'
                 """;
 
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
 
-            stmt.setString(1, newRole);
-            stmt.setString(2, newStatus);
-            stmt.setInt(3, userId);
+            conn.setAutoCommit(false);
 
-            int rowsUpdated = stmt.executeUpdate();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, newRole);
+                stmt.setString(2, newStatus);
+                stmt.setInt(3, userId);
 
-            if (rowsUpdated > 0) {
-
-                System.out.println(
-                        "User role and status updated successfully!"
-                );
-
-                return true;
+                if (stmt.executeUpdate() == 0) {
+                    conn.rollback();
+                    System.out.println("User ID not found.");
+                    return false;
+                }
             }
 
-            System.out.println("User ID not found.");
-            return false;
-
-        } catch (SQLException e) {
-
-            System.err.println(
-                    "Update error: " + e.getMessage()
+            activityLogDao.logAction(
+                    conn,
+                    adminId,
+                    "USER_UPDATED",
+                    "Admin ID " + adminId
+                            + " changed User ID " + userId
+                            + " to role " + newRole
+                            + " and status " + newStatus
             );
 
+            conn.commit();
+            System.out.println("User role and status updated successfully!");
+            return true;
+
+        } catch (SQLException e) {
+            System.err.println("Update error: " + e.getMessage());
             return false;
         }
     }
 
-    // UPDATE USER STATUS
-    public boolean updateUserStatus(int id, String status) {
+    // APPROVE OR REJECT ACCOUNT
+    public boolean updateUserStatus(
+            int id,
+            String status,
+            int adminId
+    ) {
 
         if (status == null) {
-            System.out.println("Invalid status.");
             return false;
         }
 
         status = status.trim().toUpperCase();
 
-        if (!status.equals("APPROVED")
-                && !status.equals("REJECTED")) {
-
+        if (!List.of("APPROVED", "REJECTED").contains(status)) {
             System.out.println("Invalid status.");
             return false;
         }
@@ -315,36 +342,46 @@ public class UserDao {
                   AND status != 'DELETED'
                 """;
 
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
 
-            stmt.setString(1, status);
-            stmt.setInt(2, id);
+            conn.setAutoCommit(false);
 
-            if (stmt.executeUpdate() > 0) {
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-                System.out.println("Account status updated.");
-                return true;
+                stmt.setString(1, status);
+                stmt.setInt(2, id);
+
+                if (stmt.executeUpdate() == 0) {
+                    conn.rollback();
+                    System.out.println("Account not found or cannot be changed.");
+                    return false;
+                }
             }
 
-            System.out.println(
-                    "Account not found or cannot be changed."
+            String action = status.equals("APPROVED")
+                    ? "USER_APPROVED"
+                    : "USER_REJECTED";
+
+            activityLogDao.logAction(
+                    conn,
+                    adminId,
+                    action,
+                    "Admin " + adminId + " changed User ID "
+                            + id + " status to " + status
             );
 
-            return false;
+            conn.commit();
+            System.out.println("Account status updated.");
+            return true;
 
         } catch (SQLException e) {
-
-            System.err.println(
-                    "Update error: " + e.getMessage()
-            );
-
+            System.err.println("Status update error: " + e.getMessage());
             return false;
         }
     }
 
     // SOFT DELETE USER
-    public boolean softDeleteUser(int id) {
+    public boolean softDeleteUser(int id, int adminId) {
 
         String sql = """
                 UPDATE users
@@ -354,33 +391,39 @@ public class UserDao {
                   AND status != 'DELETED'
                 """;
 
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
 
-            stmt.setInt(1, id);
+            conn.setAutoCommit(false);
 
-            if (stmt.executeUpdate() > 0) {
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-                System.out.println(
-                        "Account soft-deleted successfully."
-                );
+                stmt.setInt(1, id);
 
-                return true;
+                if (stmt.executeUpdate() == 0) {
+                    conn.rollback();
+                    System.out.println("Account not found or cannot be deleted.");
+                    return false;
+                }
             }
 
-            System.out.println(
-                    "Account not found or cannot be deleted."
+            activityLogDao.logAction(
+                    conn,
+                    adminId,
+                    "USER_DELETED",
+                    "Admin " + adminId + " soft-deleted User ID " + id
             );
 
-            return false;
+            conn.commit();
+            System.out.println("Account soft-deleted successfully.");
+            return true;
 
         } catch (SQLException e) {
-
-            System.err.println(
-                    "Delete error: " + e.getMessage()
-            );
-
+            System.err.println("Delete error: " + e.getMessage());
             return false;
         }
+    }
+
+    public ActivityLogDao getActivityLogDao() {
+        return activityLogDao;
     }
 }

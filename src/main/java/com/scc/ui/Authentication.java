@@ -63,6 +63,10 @@ public class Authentication {
             return;
         }
 
-        userDao.registerUser(username, password, role);
+        userDao.registerUser(
+                username,
+                password,
+                role
+        );
     }
 }

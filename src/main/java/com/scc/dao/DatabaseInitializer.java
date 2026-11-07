@@ -11,7 +11,7 @@ public final class DatabaseInitializer {
 
     public static void initialize() {
 
-        String sql = """
+        String usersSQL = """
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -26,18 +26,61 @@ public final class DatabaseInitializer {
                 )
                 """;
 
+        String logsSQL = """
+                CREATE TABLE IF NOT EXISTS activity_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    action_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id)
+                        REFERENCES users(id)
+                )
+                """;
+
+        String bookingsSQL = """
+                CREATE TABLE IF NOT EXISTS bookings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    child_name TEXT NOT NULL,
+                    session_date TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING'
+                        CHECK (status IN (
+                            'PENDING', 'APPROVED',
+                            'COMPLETED', 'CANCELLED'
+                        )),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id)
+                        REFERENCES users(id)
+                )
+                """;
+
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement()) {
 
-            stmt.execute(sql);
+            stmt.execute(usersSQL);
+            stmt.execute(logsSQL);
+            stmt.execute(bookingsSQL);
+
+            stmt.execute("""
+                    CREATE INDEX IF NOT EXISTS
+                    idx_activity_logs_user_id
+                    ON activity_logs(user_id)
+                    """);
+
+            stmt.execute("""
+                    CREATE INDEX IF NOT EXISTS
+                    idx_activity_logs_timestamp
+                    ON activity_logs(timestamp)
+                    """);
 
             System.out.println("Database initialized successfully.");
 
         } catch (SQLException e) {
 
             throw new IllegalStateException(
-                    "Could not initialize the database: "
-                            + e.getMessage(), e
+                    "Database initialization failed: " + e.getMessage(),
+                    e
             );
         }
     }

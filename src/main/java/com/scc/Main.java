@@ -48,7 +48,6 @@ public class Main {
 
                 switch (choice) {
 
-                    // LOGIN
                     case "1" -> {
 
                         User user = auth.login();
@@ -64,20 +63,25 @@ public class Main {
 
                                 case "ADMIN" -> {
 
-                                    AdminMenu adminMenu = new AdminMenu(
-                                            userDao,
-                                            sc,
-                                            user
-                                    );
+                                    AdminMenu adminMenu =
+                                            new AdminMenu(
+                                                    userDao,
+                                                    sc,
+                                                    user
+                                            );
 
                                     adminMenu.showMenu();
                                 }
 
-                                case "STAFF" ->
-                                        staffMenu(user);
+                                case "STAFF" -> {
+                                    staffMenu(user);
+                                    userDao.logLogout(user);
+                                }
 
-                                case "CUSTOMER" ->
-                                        customerMenu(user);
+                                case "CUSTOMER" -> {
+                                    customerMenu(user);
+                                    userDao.logLogout(user);
+                                }
 
                                 default ->
                                         System.out.println(
@@ -87,10 +91,8 @@ public class Main {
                         }
                     }
 
-                    // REGISTER
                     case "2" -> auth.register();
 
-                    // EXIT
                     case "3" -> {
 
                         System.out.println(
